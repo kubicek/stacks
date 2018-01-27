@@ -1,0 +1,82 @@
+version: "3.3"
+
+services:
+  viz:
+    image: dockersamples/visualizer
+    ports:
+      - 9090:8080
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        limits:
+          cpus: '0.5'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PORT=8080
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.1.2
+    ports:
+      - 9200:9200
+    deploy:
+      resources:
+        reservations:
+          memory: 500M
+    networks:
+      - elk
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash-oss:6.1.2
+    command: -f /conf/logstash.conf
+    configs:
+      - source: logstash.conf
+        target: /conf/logstash.conf
+    deploy:
+      resources:
+        reservations:
+          memory: 100M
+    networks:
+      - elk
+    environment:
+      - LOGSPOUT=ignore
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana-oss:6.1.2
+    networks:
+      - elk
+      - traefik_public
+    deploy:
+      resources:
+        reservations:
+          memory: 100M
+      labels:
+        - "traefik.backend=kibana"
+        - "traefik.port=5601"
+        - "traefik.frontend.rule=Host:kibana.$DOMAIN"
+        - "traefik.docker.network=traefik_public"
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+
+  logspout:
+    image: gliderlabs/logspout
+    networks:
+      - elk
+    command: 'syslog://logstash:51415'
+    deploy:
+      mode: global
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - SYSLOG_FORMAT=rfc3164
+
+networks:
+  traefik_public:
+    external: true
+  elk:
+    driver: overlay
+
+configs:
+  logstash.conf:
+    external: true
